@@ -1,0 +1,11 @@
+v1.0.2 - 2024-11-20
+- Added patch command
+- Allows play command in format of a youtube link
+
+v1.0.1 - 2024-11-15
+- Fixed bug in audio playback
+- Updated yt-dlp command to support new YouTube formats
+
+v1.0.0 - 2024-11-14
+- Initial release of the bot
+- Added basic command handling (valping, cs2ping, test)

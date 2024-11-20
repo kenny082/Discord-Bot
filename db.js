@@ -2,8 +2,12 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import { Client, GatewayIntentBits } from 'discord.js';
-import { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, StreamType } from '@discordjs/voice';
+import { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, StreamType, AudioPlayer } from '@discordjs/voice';
 import { exec } from 'child_process';
+
+// Placeholder lists for players
+const valorantPlayers = ['Player1', 'Player2', 'Player3']; // Add Valorant player names here
+const cs2Players = ['PlayerA', 'PlayerB', 'PlayerC']; // Add CS2 player names here
 
 // Set up the Discord bot client
 const client = new Client({
@@ -18,84 +22,182 @@ const client = new Client({
 
 client.login(process.env.DISCORD_TOKEN);
 
+// Create a map to store player states (playing, paused, connection)
+const playerStates = new Map();
+
 // Command handler for text-based ping and Valorant commands
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return; // Ignore bot messages
   console.log("Received message:", message.content);
 
+  // 'valping' command: Pings the list of Valorant players
   if (message.content === 'valping') {
     message.channel.send(`Hey ${valorantPlayers.join(' ')}, Valorant?`);
   }
 
+  // 'cs2ping' command: Pings the list of CS2 players
   if (message.content === 'cs2ping') {
     message.channel.send(`Hey ${cs2Players.join(' ')}, CS2?`);
   }
 
+  // 'test' command: Sends a simple "Hello World" message
   if (message.content === 'test') {
     message.channel.send("Hello World");
   }
 
-  if (message.content === 'godplan') {
+  // Command to play a YouTube video in a voice channel
+  if (message.content.startsWith('play ')) {
+    const youtubeLink = message.content.split(' ')[1];  // Extract the YouTube link after 'play '
+
+    if (!youtubeLink) {
+      message.channel.send('Please provide a valid YouTube link.');
+      return;
+    }
+
+    // Check if the link is a valid YouTube URL
+    const youtubeUrlPattern = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/(watch\?v=|.*\/)([a-zA-Z0-9_-]+)$/;
+    if (!youtubeUrlPattern.test(youtubeLink)) {
+      message.channel.send('Please provide a valid YouTube link.');
+      return;
+    }
+
+    // Get the user who sent the command and check if they are in a voice channel
     const userId = message.author.id;
-    const targetVoiceChannel = 'TARGET_VOICE_CHANNEL';  // Replace with the correct channel ID
-
-    // Join the user's voice channel
     const channel = message.guild.members.cache.get(userId)?.voice.channel;
-    if (channel) {
-      const connection = joinVoiceChannel({
-        channelId: channel.id,
-        guildId: message.guild.id,
-        adapterCreator: message.guild.voiceAdapterCreator,
+
+    if (!channel) {
+      message.channel.send('You need to be in a voice channel first.');
+      return;
+    }
+
+    const connection = joinVoiceChannel({
+      channelId: channel.id,
+      guildId: message.guild.id,
+      adapterCreator: message.guild.voiceAdapterCreator,
+    });
+
+    connection.on(VoiceConnectionStatus.Ready, () => {
+      console.log("Bot has successfully connected to the channel.");
+    });
+
+    // Execute yt-dlp to get audio stream from the YouTube link
+    const stream = exec(`yt-dlp -f bestaudio --no-warnings -g ${youtubeLink}`, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`exec error: ${error}`);
+        return;
+      }
+      if (stderr) {
+        console.error(`stderr: ${stderr}`);
+        return;
+      }
+
+      const audioUrl = stdout.trim(); // This is the direct URL to the audio stream
+      console.log(`Audio URL: ${audioUrl}`);
+
+      // Create audio resource from the stream URL
+      const resource = createAudioResource(audioUrl, {
+        inputType: StreamType.Opus,
       });
 
-      connection.on(VoiceConnectionStatus.Ready, () => {
-        console.log("Bot has successfully connected to the channel.");
+      // Create audio player and play the resource
+      const player = createAudioPlayer();
+      player.play(resource);
+
+      // Subscribe to the player to play the music
+      connection.subscribe(player);
+
+      // Handle player events
+      player.on(AudioPlayerStatus.Idle, () => {
+        connection.destroy();
+        console.log("The song has ended. Leaving the voice channel.");
+        playerStates.delete(message.guild.id); // Remove the player state when the song ends
       });
 
-      // Execute yt-dlp to get audio stream
-      const stream = exec(`yt-dlp -f bestaudio --no-warnings -g https://www.youtube.com/watch?v=xpVfcZ0ZcFM`, (error, stdout, stderr) => {
-        if (error) {
-          console.error(`exec error: ${error}`);
-          return;
+      // Error handling for the player
+      player.on('error', (error) => {
+        console.error('Audio player error:', error);
+        message.channel.send('Error playing the audio.');
+      });
+
+      // Save the player state
+      playerStates.set(message.guild.id, {
+        player,
+        connection,
+        youtubeLink,
+      });
+    });
+
+    // Error handling for yt-dlp
+    stream.on('error', (error) => {
+      console.error('Stream error:', error);
+      message.channel.send('Error fetching audio from YouTube.');
+    });
+  }
+
+  // 'bresume' command: Resumes the audio if it's paused
+  if (message.content === 'bresume') {
+    const state = playerStates.get(message.guild.id);
+    if (!state) {
+      message.channel.send('No audio is currently paused.');
+      return;
+    }
+
+    const { player } = state;
+    if (player.state.status === AudioPlayerStatus.Paused) {
+      player.unpause(); // Resumes the music
+      message.channel.send('Resuming the music...');
+    } else {
+      message.channel.send('The music is already playing.');
+    }
+  }
+
+  // 'bstop' command: Pauses the audio
+  if (message.content === 'bstop') {
+    const state = playerStates.get(message.guild.id);
+    if (!state) {
+      message.channel.send('No audio is currently playing.');
+      return;
+    }
+
+    const { player } = state;
+    if (player.state.status === AudioPlayerStatus.Playing) {
+      player.pause(); // Pauses the music
+      message.channel.send('Pausing the music...');
+    } else {
+      message.channel.send('The music is already paused.');
+    }
+  }
+
+  // 'bleave' command: Makes the bot leave the voice channel
+  if (message.content === 'bleave') {
+    const state = playerStates.get(message.guild.id);
+    if (!state) {
+      message.channel.send('I am not in a voice channel.');
+      return;
+    }
+
+    const { connection } = state;
+    connection.destroy(); // Disconnect from the voice channel
+    message.channel.send('Leaving the voice channel...');
+    playerStates.delete(message.guild.id); // Remove the player state
+  }
+
+  // "botupdate" command to send the latest changes from the 'patch' file
+  if (message.content === 'botupdate') {
+    const patchFilePath = './patch.txt';  // Modify this path if the file is in a different location
+
+    // Check if the patch file exists
+    if (fs.existsSync(patchFilePath)) {
+      fs.readFile(patchFilePath, 'utf8', (err, data) => {
+        if (err) {
+          console.error('Error reading patch file:', err);
+          message.channel.send('Sorry, there was an error fetching the updates.');
+        } else {
+          message.channel.send(`Here are the latest updates:\n\n${data}`);
         }
-        if (stderr) {
-          console.error(`stderr: ${stderr}`);
-          return;
-        }
-
-        const audioUrl = stdout.trim(); // This is the direct URL to the audio stream
-        console.log(`Audio URL: ${audioUrl}`);
-
-        // Create audio resource from the stream URL
-        const resource = createAudioResource(audioUrl, {
-          inputType: StreamType.Opus,
-        });
-
-        // Create audio player and play the resource
-        const player = createAudioPlayer();
-        player.play(resource);
-
-        // Subscribe to the player to play the music
-        connection.subscribe(player);
-
-        // Handle player events
-        player.on(AudioPlayerStatus.Idle, () => {
-          connection.destroy();
-          console.log("The song has ended. Leaving the voice channel.");
-        });
-
-        // Error handling for the player
-        player.on('error', (error) => {
-          console.error('Audio player error:', error);
-        });
-      });
-
-      // Error handling for yt-dlp
-      stream.on('error', (error) => {
-        console.error('Stream error:', error);
       });
     } else {
-      message.channel.send('You need to be in a voice channel first.');
+      message.channel.send('Patch file not found.');
     }
   }
 });
