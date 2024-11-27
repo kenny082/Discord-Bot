@@ -5,9 +5,17 @@ import { Client, GatewayIntentBits } from 'discord.js';
 import { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, StreamType, AudioPlayer } from '@discordjs/voice';
 import { exec } from 'child_process';
 
-// Placeholder lists for players
-const valorantPlayers = ['Player1', 'Player2', 'Player3']; // Add Valorant player names here
-const cs2Players = ['PlayerA', 'PlayerB', 'PlayerC']; // Add CS2 player names here
+const valorantPlayers = [
+  '<@323872822340616202>',
+  '<@300336822930636802>',
+  '<@161275448356110337>',
+  '<@303192973636534272>',
+  '<@485627373484507147>',
+  '<@206204815104147458>',
+  '<@519287093474885662>',
+  '<@453730860886392832>',
+  '<@139105401756057600>',
+];
 
 // Set up the Discord bot client
 const client = new Client({
@@ -33,11 +41,6 @@ client.on('messageCreate', async (message) => {
   // 'valping' command: Pings the list of Valorant players
   if (message.content === 'valping') {
     message.channel.send(`Hey ${valorantPlayers.join(' ')}, Valorant?`);
-  }
-
-  // 'cs2ping' command: Pings the list of CS2 players
-  if (message.content === 'cs2ping') {
-    message.channel.send(`Hey ${cs2Players.join(' ')}, CS2?`);
   }
 
   // 'test' command: Sends a simple "Hello World" message
